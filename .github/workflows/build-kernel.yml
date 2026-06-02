@@ -1,0 +1,59 @@
+name: Build PrettyWSL Kernel
+
+on:
+  push:
+    branches: [linux-msft-wsl-6.18.y]
+  workflow_dispatch:
+
+jobs:
+  build-kernel:
+    name: Build Kernel x64
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make gcc flex bison dwarves libssl-dev libelf-dev \
+            python3-dev python3-pip bc cpio zstd
+          pip3 install --break-system-packages ply
+
+      - name: Build kernel with PrettyWSL config
+        run: |
+          make -j$(nproc) LLVM=1 defconfig
+          cp arch/x86/configs/config-wsl .config
+          make -j$(nproc) LLVM=1 bzImage modules
+
+      - name: List kernel artifacts
+        run: |
+          ls -lh arch/x86/boot/bzImage
+          ls -lh vmlinux
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prettywsl-kernel-x64
+          path: |
+            arch/x86/boot/bzImage
+            vmlinux
+            .config
+          retention-days: 7
+
+      - name: Build kernel modules VHDX
+        run: |
+          make -j$(nproc) LLVM=1 INSTALL_MOD_PATH=./modules modules_install
+          if command -v mkvhdx &> /dev/null; then
+            mkvhdx modules modules.vhdx
+          else
+            tar -czf modules.tar.gz -C modules .
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prettywsl-kernel-modules-x64
+          path: |
+            modules.tar.gz
+          retention-days: 7
